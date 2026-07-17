@@ -31,7 +31,7 @@
   #stage{flex:1;position:relative;min-width:0}
   .view{position:absolute;inset:0;display:none}
   .view.on{display:block}
-  svg{width:100%;height:100%;display:block;cursor:grab}
+  svg{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   svg.grabbing{cursor:grabbing}
   aside{width:300px;border-left:1px solid var(--line);background:var(--panel);padding:13px;
     overflow-y:auto;font-size:13px}
@@ -73,13 +73,24 @@
   #tourCard .tc-body{font-size:13px;line-height:1.5;color:#3a342b}
   #tourCard .tc-body select{margin-top:8px;width:100%;max-width:100%}
   #tourCard .tc-think{margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:12.5px;color:#6b5f4c;font-style:italic}
-  #tourCard .tc-drag{cursor:move;user-select:none;text-align:center;color:var(--muted);font-size:12px;letter-spacing:3px;margin:-6px 0 4px;padding:2px}
+  #tourCard .tc-drag{cursor:move;user-select:none;text-align:center;color:var(--muted);font-size:12px;letter-spacing:3px;margin:-6px 0 4px;padding:2px;touch-action:none}
   #tourCard textarea.tour-note{width:100%;min-height:44px;margin-top:8px;border:1px solid var(--line);border-radius:7px;padding:7px;font:inherit;font-size:12.5px;background:#fff;resize:vertical}
   #tourCard .tc-btns{display:flex;gap:8px;align-items:center;margin-top:13px}
   #tourCard .tc-btns .sp{margin-right:auto}
   dialog#respondDlg{border:1px solid var(--ink);border-radius:14px;padding:0;max-width:560px;width:92%;max-height:90vh;overflow:auto;color:var(--ink);background:var(--paper)}
   .rd-qs{margin:6px 0 10px;padding-left:18px;color:#5a5142;font-size:12.5px;line-height:1.55}
   .rd-qs li{margin:3px 0}
+  @media (max-width:760px){
+    header{gap:8px;padding:8px 12px}
+    header h1{font-size:14px}
+    .toolbar{gap:6px;width:100%;margin-left:0}
+    button{font-size:12px;padding:5px 9px}
+    main{flex-direction:column}
+    #stage{flex:none;height:56vh;min-height:300px}
+    aside{width:100%;flex:1;min-height:0;border-left:none;border-top:1px solid var(--line)}
+    #tourCard{width:94%;left:3%;right:auto;transform:none;bottom:10px}
+    #tourCard.hidden{display:none}
+  }
   dialog#respondDlg::backdrop{background:rgba(43,38,34,.45)}
   .rd-wrap{padding:18px 20px}
   .rd-wrap h3{margin:0 0 3px;font-size:17px}
@@ -501,7 +512,7 @@ function renderNetwork(){
     g.addEventListener("mouseenter",e=>hoverNode(n,e));
     g.addEventListener("mousemove",moveTip);
     g.addEventListener("mouseleave",hideTip);
-    g.addEventListener("mousedown",e=>{e.stopPropagation();if(e.shiftKey)return;startDragN(n,e);});
+    g.addEventListener("pointerdown",e=>{e.stopPropagation();if(e.shiftKey)return;startDragN(n,e);});
     g.addEventListener("click",e=>{e.stopPropagation();select(n.id);});
   });
   applyFilterN(); updateLabelsN();
@@ -529,15 +540,32 @@ function shortLabel(n){
 let dragN=null;
 function startDragN(n,e){const p=toGraphN(e);dragN={n,dx:n.x-p.x,dy:n.y-p.y};n.fixed=true;}
 function toGraphN(e){const r=svgN.getBoundingClientRect();return{x:(e.clientX-r.left-viewN.x)/viewN.k,y:(e.clientY-r.top-viewN.y)/viewN.k};}
-window.addEventListener("mousemove",e=>{if(dragN){const p=toGraphN(e);dragN.n.x=p.x+dragN.dx;dragN.n.y=p.y+dragN.dy;dragN.n.vx=0;dragN.n.vy=0;}});
-window.addEventListener("mouseup",()=>{if(dragN){dragN.n.fixed=false;dragN=null;}});
-svgN.addEventListener("wheel",e=>{e.preventDefault();const s=Math.exp(-e.deltaY*0.0012);
-  const r=svgN.getBoundingClientRect();const mx=e.clientX-r.left,my=e.clientY-r.top;
-  viewN.x=mx-(mx-viewN.x)*s;viewN.y=my-(my-viewN.y)*s;viewN.k*=s;applyN();},{passive:false});
-let panN=false,panNs=null;
-svgN.addEventListener("mousedown",e=>{if(e.target===svgN){panN=true;panNs={x:e.clientX-viewN.x,y:e.clientY-viewN.y};svgN.classList.add("grabbing");clearSelect();}});
-window.addEventListener("mousemove",e=>{if(panN){viewN.x=e.clientX-panNs.x;viewN.y=e.clientY-panNs.y;applyN();}});
-window.addEventListener("mouseup",()=>{panN=false;svgN.classList.remove("grabbing");});
+window.addEventListener("pointermove",e=>{if(dragN){const p=toGraphN(e);dragN.n.x=p.x+dragN.dx;dragN.n.y=p.y+dragN.dy;dragN.n.vx=0;dragN.n.vy=0;e.preventDefault();}},{passive:false});
+window.addEventListener("pointerup",()=>{if(dragN){dragN.n.fixed=false;dragN=null;}});
+// unified pan / pinch-zoom / wheel for mouse + touch (pointer events)
+function makePanZoom(svg,view,apply,onBg){
+  const pts=new Map();let pan=null,pinch=null;
+  const isBg=t=>t===svg||t.tagName==="path"||t.tagName==="line";
+  svg.addEventListener("pointerdown",e=>{
+    if(!isBg(e.target))return;
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size===1){pan={x:e.clientX-view.x,y:e.clientY-view.y};svg.classList.add("grabbing");if(onBg)onBg();}
+    else if(pts.size===2){pan=null;const[a,b]=[...pts.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y)||1,mx:(a.x+b.x)/2,my:(a.y+b.y)/2,vx:view.x,vy:view.y,vk:view.k};}
+  });
+  window.addEventListener("pointermove",e=>{
+    if(pts.has(e.pointerId))pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pinch&&pts.size>=2){const[a,b]=[...pts.values()];const s=Math.hypot(a.x-b.x,a.y-b.y)/pinch.d;
+      const r=svg.getBoundingClientRect(),mx=pinch.mx-r.left,my=pinch.my-r.top;
+      view.k=pinch.vk*s;view.x=mx-(mx-pinch.vx)*s;view.y=my-(my-pinch.vy)*s;apply();e.preventDefault();return;}
+    if(pan){view.x=e.clientX-pan.x;view.y=e.clientY-pan.y;apply();}
+  },{passive:false});
+  function end(e){pts.delete(e.pointerId);if(pts.size<2)pinch=null;if(pts.size===0){pan=null;svg.classList.remove("grabbing");}}
+  window.addEventListener("pointerup",end);window.addEventListener("pointercancel",end);
+  svg.addEventListener("wheel",e=>{e.preventDefault();const s=Math.exp(-e.deltaY*0.0012);
+    const r=svg.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+    view.x=mx-(mx-view.x)*s;view.y=my-(my-view.y)*s;view.k*=s;apply();},{passive:false});
+}
+makePanZoom(svgN,viewN,applyN,clearSelect);
 
 function hoverNode(n,e){
   let html="";
@@ -660,13 +688,7 @@ function fitMap(){
   const k=Math.min(WM/bw,HM/bh,6);
   viewM.k=k;viewM.x=WM/2-((x0+x1)/2)*k;viewM.y=HM/2-((y0+y1)/2)*k;applyM();
 }
-svgM.addEventListener("wheel",e=>{e.preventDefault();const s=Math.exp(-e.deltaY*0.0012);
-  const r=svgM.getBoundingClientRect();const mx=e.clientX-r.left,my=e.clientY-r.top;
-  viewM.x=mx-(mx-viewM.x)*s;viewM.y=my-(my-viewM.y)*s;viewM.k*=s;applyM();},{passive:false});
-let panM=false,panMs=null;
-svgM.addEventListener("mousedown",e=>{if(e.target===svgM||e.target.tagName==="path"){panM=true;panMs={x:e.clientX-viewM.x,y:e.clientY-viewM.y};svgM.classList.add("grabbing");clearSelect();}});
-window.addEventListener("mousemove",e=>{if(panM){viewM.x=e.clientX-panMs.x;viewM.y=e.clientY-panMs.y;applyM();}});
-window.addEventListener("mouseup",()=>{panM=false;svgM.classList.remove("grabbing");});
+makePanZoom(svgM,viewM,applyM,clearSelect);
 function applySelectionMap(){
   pinEls.forEach(({g,c,p})=>{ const on=!selected|| p.id===selected || (byId.get(selected)&&byId.get(selected).choosers&&byId.get(selected).choosers.has(p.name)) || (byId.get(selected)&&byId.get(selected).kind==="move"&&p.moveOf===byId.get(selected).label);
     g.style.opacity=on?"1":"0.2"; c.setAttribute("r", p.id===selected?8:5.5);});
@@ -776,7 +798,6 @@ function buildChips(){
 }
 buildChips();
 document.getElementById("studentSelect").addEventListener("change",e=>{const v=e.target.value;if(v)select("person::"+v);else clearSelect();});
-svgN.addEventListener("mousedown",e=>{if(e.target===svgN)clearSelect();});
 
 /* ---------- data load ---------- */
 function setStatus(t){document.getElementById("status").textContent=t;}
@@ -900,10 +921,10 @@ document.getElementById("tcBack").addEventListener("click",()=>showTourStep(tour
 document.getElementById("tcClose").addEventListener("click",endTour);
 /* draggable callout — move it to see behind it */
 (function(){const card=document.getElementById("tourCard"),h=document.getElementById("tcDrag");let dr=null;
-  h.addEventListener("mousedown",e=>{const r=card.getBoundingClientRect(),pr=(card.offsetParent||document.body).getBoundingClientRect();
+  h.addEventListener("pointerdown",e=>{const r=card.getBoundingClientRect(),pr=(card.offsetParent||document.body).getBoundingClientRect();
     dr={dx:e.clientX-r.left,dy:e.clientY-r.top,pl:pr.left,pt:pr.top};card.style.transform="none";card.style.bottom="auto";e.preventDefault();});
-  window.addEventListener("mousemove",e=>{if(!dr)return;card.style.left=Math.max(0,e.clientX-dr.dx-dr.pl)+"px";card.style.top=Math.max(0,e.clientY-dr.dy-dr.pt)+"px";});
-  window.addEventListener("mouseup",()=>{dr=null;});})();
+  window.addEventListener("pointermove",e=>{if(!dr)return;card.style.left=Math.max(0,e.clientX-dr.dx-dr.pl)+"px";card.style.top=Math.max(0,e.clientY-dr.dy-dr.pt)+"px";e.preventDefault();},{passive:false});
+  window.addEventListener("pointerup",()=>{dr=null;});})();
 
 /* ---------- respond / reflection ---------- */
 const respondDlg=document.getElementById("respondDlg");
